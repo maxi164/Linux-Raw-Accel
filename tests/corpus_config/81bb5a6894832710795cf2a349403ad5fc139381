@@ -1,0 +1,1 @@
+{"active_profile":"default","Orofiles":[{"name":"default","device_id":"","dpi":800,"polling_rate":1000,"profile":{"accel_x":{"mode":"classic","gain":true,"acceleration_mde":"out"},"accel_y":{"mode":"noaccel"},"degrees_rotation":15,"degrees_snap":5,"speeseepd_max":80}}]}

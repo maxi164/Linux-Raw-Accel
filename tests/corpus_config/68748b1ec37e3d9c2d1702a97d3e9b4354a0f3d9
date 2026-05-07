@@ -1,0 +1,1 @@
+{"active_profile":"a","profiles":[{"name":"a","dpi":1600,"polling_rate":1000,"profile":{"accel_x":{"_rate":0.1,"limit":2},"accel_y":{"mode":"power","ssale":0.5,"exponent_power":1.5}}},{"name":"b","profile":{"accel_x":{"mode":"jump","smooth":0.5},"accel_y":{"mode":"synchronous","acceleration":0.01,"synt_points":[[0,1],[10,1.5],[20,2]]}}}]}

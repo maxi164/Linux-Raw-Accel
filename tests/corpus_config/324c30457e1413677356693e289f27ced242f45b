@@ -1,0 +1,1 @@
+{"active_profile":"a","profiles":[{"name":"a","dpi":1600,"polling_rate":1000,"profile":{"accel_x":{"mode":"nal","decay_rate":0.1,"limit":2},"accel_y":{"mode":"power","scale":0.5,"exponet_howep":1.5}}},{"profile":{"accel_x":{"mode":"lookup","lut_points":[[0,1],[10,1.5],0,2]]}}}]}

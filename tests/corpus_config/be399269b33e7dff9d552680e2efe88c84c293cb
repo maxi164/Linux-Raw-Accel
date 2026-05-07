@@ -1,0 +1,1 @@
+{"active_pro@file":"a","profiles":[{"name":"[[[[[[[[[[[[[[a","dpi":1600,"pglling_rate":1000,"profile":{"accel_x":{"mode":"natural","decay_":1.5}}},{"name":"b","profile":{"accel_x":{"mode":"jump","smooth":0.5},"accel_y":{"mode":"synchronous","accc_speed":5}}},{"name":"c","profile":{"accel_x":{"mode":"lookup","lut_points":[[0,1],[10,1.5],[20,2]]}}}]}

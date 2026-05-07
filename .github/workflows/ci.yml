@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build (portable) + Unit tests + Warning gate
+    runs-on: ubuntu-24.04
+    env:
+      RAWACCEL_PORTABLE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config \
+            libevdev-dev libgtk-4-dev
+
+      - name: Build (warning-as-failure gate)
+        run: |
+          set -o pipefail
+          # Capture full output, then fail if any warning/error line appears.
+          bash scripts/build.sh 2>&1 | tee build.log
+          if grep -E "warning:|error:" build.log; then
+            echo "::error::Build produced warnings or errors (see above)."
+            exit 1
+          fi
+
+      - name: Verify binaries
+        run: |
+          test -x build-manual/rawaccel-daemon
+          test -x build-manual/rawaccel-cli
+          test -x build-manual/rawaccel-gui
+          file build-manual/rawaccel-*
+
+      - name: Run unit tests
+        run: bash tests/run_tests.sh
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+
+  sanitizers:
+    name: Tests under ASan + UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libevdev-dev
+
+      - name: Build & run tests with -fsanitize=address,undefined
+        env:
+          # Fail loud on any sanitizer report
+          ASAN_OPTIONS: "halt_on_error=1:abort_on_error=1:strict_string_checks=1:detect_leaks=1"
+          UBSAN_OPTIONS: "halt_on_error=1:abort_on_error=1:print_stacktrace=1"
+        run: |
+          mkdir -p build-manual
+          g++ -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
+              -fsanitize=address,undefined -fno-omit-frame-pointer \
+              -I include -I src \
+              tests/test_accel.cpp src/config.cpp \
+              -o build-manual/test_accel_asan
+          build-manual/test_accel_asan
+
+  fuzz-smoke:
+    name: Fuzz smoke (60s per harness)
+    runs-on: ubuntu-24.04
+    # Only run on push / manual dispatch — keeps PRs fast.
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libevdev-dev clang
+
+      - name: Run fuzz harnesses (60s each)
+        run: bash tests/run_fuzz.sh 60
+
+      - name: Upload crashes on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: |
+            crash-*
+            tests/corpus_config
+          if-no-files-found: ignore

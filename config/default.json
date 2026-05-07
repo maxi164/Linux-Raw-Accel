@@ -1,0 +1,130 @@
+{
+    "active_profile": "default",
+    "use_raw_input": true,
+    "profiles": [
+        {
+            "name": "default",
+            "device_id": "",
+            "dpi": 800,
+            "polling_rate": 1000,
+            "disable": false,
+            "profile": {
+                "name": "default",
+                "domain_weights": [1.0, 1.0],
+                "range_weights": [1.0, 1.0],
+                "output_dpi": 1000.0,
+                "degrees_rotation": 0.0,
+                "degrees_snap": 0.0,
+                "speed_min": 0.0,
+                "speed_max": 0.0,
+                "lr_output_dpi_ratio": 1.0,
+                "ud_output_dpi_ratio": 1.0,
+                "accel_x": {
+                    "mode": "noaccel",
+                    "gain": true,
+                    "acceleration": 0.005,
+                    "exponent_classic": 2.0,
+                    "exponent_power": 0.05,
+                    "limit": 1.5,
+                    "decay_rate": 0.1,
+                    "input_offset": 0.0,
+                    "output_offset": 0.0,
+                    "scale": 1.0,
+                    "cap": [15.0, 1.5],
+                    "cap_mode": "out",
+                    "smooth": 0.5,
+                    "sync_speed": 5.0,
+                    "motivity": 1.5,
+                    "gamma": 1.0
+                },
+                "accel_y": {
+                    "mode": "noaccel",
+                    "gain": true,
+                    "acceleration": 0.005,
+                    "exponent_classic": 2.0,
+                    "exponent_power": 0.05,
+                    "limit": 1.5,
+                    "decay_rate": 0.1,
+                    "input_offset": 0.0,
+                    "output_offset": 0.0,
+                    "scale": 1.0,
+                    "cap": [15.0, 1.5],
+                    "cap_mode": "out",
+                    "smooth": 0.5,
+                    "sync_speed": 5.0,
+                    "motivity": 1.5,
+                    "gamma": 1.0
+                },
+                "speed_processor": {
+                    "whole": true,
+                    "lp_norm": 2.0,
+                    "input_speed_smooth_halflife": 0.0,
+                    "scale_smooth_halflife": 0.0,
+                    "output_speed_smooth_halflife": 0.0
+                }
+            }
+        },
+        {
+            "name": "classic-gaming",
+            "device_id": "",
+            "dpi": 800,
+            "polling_rate": 1000,
+            "disable": false,
+            "profile": {
+                "name": "classic-gaming",
+                "domain_weights": [1.0, 1.0],
+                "range_weights": [1.0, 1.0],
+                "output_dpi": 1000.0,
+                "degrees_rotation": 0.0,
+                "degrees_snap": 0.0,
+                "speed_min": 0.0,
+                "speed_max": 0.0,
+                "lr_output_dpi_ratio": 1.0,
+                "ud_output_dpi_ratio": 1.0,
+                "accel_x": {
+                    "mode": "classic",
+                    "gain": true,
+                    "acceleration": 0.005,
+                    "exponent_classic": 2.0,
+                    "limit": 1.5,
+                    "decay_rate": 0.1,
+                    "input_offset": 0.0,
+                    "output_offset": 0.0,
+                    "scale": 1.0,
+                    "exponent_power": 0.05,
+                    "cap": [15.0, 1.5],
+                    "cap_mode": "out",
+                    "smooth": 0.5,
+                    "sync_speed": 5.0,
+                    "motivity": 1.5,
+                    "gamma": 1.0
+                },
+                "accel_y": {
+                    "mode": "classic",
+                    "gain": true,
+                    "acceleration": 0.005,
+                    "exponent_classic": 2.0,
+                    "limit": 1.5,
+                    "decay_rate": 0.1,
+                    "input_offset": 0.0,
+                    "output_offset": 0.0,
+                    "scale": 1.0,
+                    "exponent_power": 0.05,
+                    "cap": [15.0, 1.5],
+                    "cap_mode": "out",
+                    "smooth": 0.5,
+                    "sync_speed": 5.0,
+                    "motivity": 1.5,
+                    "gamma": 1.0
+                },
+                "speed_processor": {
+                    "whole": true,
+                    "lp_norm": 2.0,
+                    "input_speed_smooth_halflife": 0.0,
+                    "scale_smooth_halflife": 0.0,
+                    "output_speed_smooth_halflife": 0.0
+                }
+            }
+        }
+    ]
+}

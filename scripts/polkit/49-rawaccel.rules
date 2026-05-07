@@ -1,0 +1,16 @@
+/* RawAccel Linux — polkit rules
+ *
+ * Users in the 'input' group can start rawaccel-daemon without a password.
+ * This rule runs before the default (50-default.rules) because of the lower
+ * priority number (49 < 50).
+ *
+ * Performance note: evaluated only at daemon start, not in the hot path.
+ */
+polkit.addRule(function(action, subject) {
+    if (action.id === "org.rawaccel.daemon.start" &&
+        subject.isInGroup("input") &&
+        subject.local &&
+        subject.active) {
+        return polkit.Result.YES;
+    }
+});

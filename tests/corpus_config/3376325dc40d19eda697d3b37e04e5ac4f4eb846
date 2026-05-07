@@ -1,0 +1,1 @@
+{"acevitpr_ofile":"a","profiles":[{"name":"a","dpi":1600,"pglling_rate":1000,"profile":{"ic_y":{"mode":"synchronous","acceleration":0.01,"sync_d":5}}},{"name":"c","profile":{"accel_x":{"mode":"lookup","lut_points":[[0,1],[10,1.5]]2[],02,}}}]}

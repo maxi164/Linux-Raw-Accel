@@ -1,0 +1,1 @@
+[{"name":"a","dpi":1600,"polling_rate":1000,"profile":{"ac-cel_x":{"mode":"natural","decay_rate":0.1,"limit":2},"accel_y":{"mode":"power","scale":0.5,"exponent_power":1.5}}},{"name"

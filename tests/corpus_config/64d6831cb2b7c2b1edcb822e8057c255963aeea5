@@ -1,0 +1,1 @@
+{"profiles":[{"name":"x","dpi":999999,"polling_rate":-1,"profile":{"accel_x":{"mode":"classic","acceleration":1e308,"exponent_classic":-999,"limit":-1},"degrees_rotation":99999,"tp":-5,"speed_min":-100,"speed_max":0}}]}

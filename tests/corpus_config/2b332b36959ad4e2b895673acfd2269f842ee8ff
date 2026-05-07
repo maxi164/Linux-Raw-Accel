@@ -1,0 +1,1 @@
+{"active_profile":"a","profiles":[{"name":"a","dpi":1600,"pglling_rate":1000,"profile":{"iccel_x":{"mode":"natural","decrate":0.1,"limit":2},"accel_y":{"mode":"power","on":0.01,"sync_speed":0}}},{"name":"c","profile":{"accel_x":{"mode":"lookup","lut_points":[[0,0,2]]}}}]}

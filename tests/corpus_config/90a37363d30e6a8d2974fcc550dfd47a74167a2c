@@ -1,0 +1,1 @@
+{"avtice_profile":"a","profiles":[{"name":"a","dp_rate":1000,"profile":{"accel_x":{"mode":"nalam/l","limitdecay_rate":0.1,"limit":2},"accel_y":{"mode":1.5,"accelerationnts":[[0,1],[10,1.5],[10,2]]}}}]}

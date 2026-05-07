@@ -1,0 +1,1 @@
+{"avtice_profile":"a","profiles":[{"npi":1600,"polling_rXte":1000,"profile":{"accel_x":{"syncmode":"nalam/l","d":1.5}}},{"name":"b","profile":{"accel_x":{"moation":0.01,"sync_speed":5}}},{"name":"c","profile":{"accel_x":{"mode":"lookup","lut_points":[[0,1],[10,1.5],[20,2]]}}}]}

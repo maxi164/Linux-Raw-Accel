@@ -1,0 +1,18 @@
+# RawAccel libinput quirk
+#
+# Tells libinput that any virtual mouse whose name ends with "(RawAccel)"
+# should be treated like a trackball: the default acceleration profile is
+# Flat (no acceleration). This way, regardless of host (KDE/GNOME/sway/X11)
+# or physical mouse vendor, the compositor never stacks its own
+# acceleration curve on top of RawAccel's processing — no kwinrc /
+# kcminputrc tricks, no manual System Settings toggle required.
+#
+# ModelTrackball is preferred over INPUT_PROP_POINTING_STICK because
+# libinput skips trackpoint-style cursor speed normalisation for it,
+# preserving the 1:1 / acceleration-curve output produced by RawAccel.
+#
+# Installed by: setup.sh / scripts/install.sh
+
+[RawAccel Virtual Mouse]
+MatchName=*(RawAccel)
+ModelTrackball=1

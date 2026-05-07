@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+  "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+
+<!--
+  RawAccel Linux — polkit policy for starting the daemon via pkexec.
+
+  This policy allows members of the 'input' group to start rawaccel-daemon
+  as root WITHOUT a password prompt (auth_admin is the fallback for other users).
+
+  The 'input' group is the correct group because:
+    - The daemon exclusively needs /dev/input/* and /dev/uinput access
+    - Users added to 'input' by the installer have already consented to this level
+      of hardware access by virtue of being in that group
+
+  Performance note: pkexec is only invoked once at daemon start; it has zero
+  impact on the hot path (mouse event processing runs entirely in the daemon).
+-->
+<policyconfig>
+  <vendor>RawAccel Linux</vendor>
+  <vendor_url>https://github.com/rawaccel-linux/rawaccel-linux</vendor_url>
+
+  <action id="org.rawaccel.daemon.start">
+    <description>Start the RawAccel mouse acceleration daemon</description>
+    <message>Authentication is required to start the RawAccel daemon.</message>
+    <defaults>
+      <!-- Physically logged-in users in the input group: no password -->
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <!-- Annotate the allowed executable to prevent path-substitution attacks -->
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/rawaccel-daemon</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>

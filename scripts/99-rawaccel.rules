@@ -1,0 +1,20 @@
+# RawAccel Linux — udev rules
+#
+# Grants the 'input' group read-write access to:
+#   /dev/uinput       — needed to create the virtual output mouse
+#   /dev/input/event* — needed to grab the physical mouse
+#
+# After installing these rules a user in the 'input' group can run
+# rawaccel-daemon WITHOUT root/sudo.  The install script adds the
+# current user to the 'input' group automatically.
+#
+# To install manually:
+#   sudo cp 99-rawaccel.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#   sudo usermod -aG input $USER   # then log out and back in
+
+# uinput: virtual device creation
+KERNEL=="uinput", MODE="0660", GROUP="input", TAG+="uaccess"
+
+# Physical input event nodes
+KERNEL=="event*", SUBSYSTEM=="input", GROUP="input", MODE="0660", TAG+="uaccess"

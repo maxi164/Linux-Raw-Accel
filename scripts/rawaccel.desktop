@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=RawAccel Linux
+GenericName=Mouse Acceleration Tool
+Comment=Configure mouse acceleration curves (Raw Accel Linux port)
+Exec=rawaccel-gui
+Icon=input-mouse
+Categories=Settings;HardwareSettings;
+Keywords=mouse;acceleration;gaming;sensitivity;
+StartupNotify=true

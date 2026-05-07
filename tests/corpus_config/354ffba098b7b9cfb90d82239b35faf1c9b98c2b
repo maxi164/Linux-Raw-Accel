@@ -1,0 +1,1 @@
+{"active_pro@file":"a","profiles":[{"napro[":1000,"profile":{"accel_x":{"mode":"natural","decay_rate":0.1,"limit":2},"accel_y":{"mode":"power","scale":0.5}}},{"name":{"accel_x":{"ts":[[0,1],[10,1.5],[20,2]]}}}]}

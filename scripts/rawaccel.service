@@ -1,0 +1,90 @@
+[Unit]
+Description=RawAccel Linux Mouse Acceleration Daemon
+# Start after udevd so that udev rules (99-rawaccel.rules) are already loaded.
+# No dependency on network.target — this is an input daemon.
+# On KDE Wayland sessions, KWin must be up before mice are grabbed so that
+# the virtual uinput device is visible to the compositor.  We cannot hard-depend
+# on plasma-kwin_wayland here (not present on X11), so we use Wants= + After=
+# to express a soft ordering: start after KWin if it is running, skip otherwise.
+After=systemd-udevd.service
+Wants=plasma-kwin_wayland.service
+After=plasma-kwin_wayland.service
+Documentation=https://github.com/rawaccel-linux/rawaccel-linux
+
+[Service]
+Type=simple
+# Config is stored in /etc/rawaccel/settings.json when running as a system service.
+# The GUI/CLI store settings in ~/.config/rawaccel/settings.json for the user;
+# run `rawaccel-cli` or the GUI to create/edit profiles, then they are copied to
+# /etc/rawaccel/ by the install script or symlinked via ExecStartPre below.
+ExecStart=/usr/local/bin/rawaccel-daemon -c /etc/rawaccel/settings.json
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=3
+PIDFile=/run/rawaccel.pid
+
+# Security hardening
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+NoNewPrivileges=true
+RemoveIPC=true
+ProtectHostname=true
+# Restrict to native syscall ABI only — defeats exploits that pivot through
+# 32-bit / x32 syscall variants on a 64-bit kernel.
+SystemCallArchitectures=native
+# UMask=0077 → files created by the daemon (incl. /run/rawaccel.pid) default
+# to 0600 / dirs 0700 instead of world-readable.  The IPC socket is chmod'd
+# to 0660 explicitly after creation, so this doesn't break the GUI/CLI access.
+UMask=0077
+ReadWritePaths=/etc/rawaccel /run
+# Capability bounding set: only what the daemon actually exercises.
+#   CAP_CHOWN              : chown(IPC socket) to root:input
+#   CAP_DAC_READ_SEARCH    : read /dev/input/event* even if not in input grp
+#   CAP_DAC_OVERRIDE       : open /dev/uinput when udev rule hasn't propagated
+#   CAP_FOWNER             : chmod the IPC socket regardless of effective uid
+# Drops everything else (CAP_SYS_*, CAP_NET_*, CAP_KILL, CAP_BPF, etc.).
+# If a future kernel/distro change requires more, a clear EPERM in journald
+# will indicate which cap is missing.
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_FOWNER
+AmbientCapabilities=
+
+# Network: this is a 100% local mouse driver — no network access ever.
+# PrivateNetwork=true gives the daemon its own empty network namespace
+# (no loopback, no interfaces, nothing).  Combined with the address-family
+# restriction below, it is impossible for the daemon to make a network
+# connection even if compromised.
+#   - AF_UNIX is needed for the IPC socket (local file, not network).
+#   - AF_NETLINK is dropped: the daemon uses inotify, not udev/netlink.
+#   - IP families (AF_INET/AF_INET6/AF_PACKET/...) are explicitly forbidden.
+PrivateNetwork=true
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+
+# Needs access to input devices (uinput virtual device creation required).
+# DeviceAllow= is intentionally NOT set: when it is, systemd switches to a
+# strict device cgroup policy that, on some kernels (notably with cachyos /
+# bpf-based device cgroups), prevents the daemon from listing /dev/input/event*
+# and results in "No physical mice found" even when running as root.
+# The service still drops privileges to the input group via SupplementaryGroups
+# and the udev rule (99-rawaccel.rules) keeps /dev/uinput accessible.
+SupplementaryGroups=input
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rawaccel
+
+[Install]
+WantedBy=multi-user.target
