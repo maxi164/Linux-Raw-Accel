@@ -263,7 +263,7 @@ int main(int argc, char* argv[]) {
     g_daemon.store(&daemon);
 
     // Always log to stdout (systemd journal captures it), verbose = also show debug
-    daemon.set_log_cb([verbose](const std::string& msg) {
+    daemon.set_log_cb([](const std::string& msg) {
         std::cout << "[rawaccel] " << msg << std::endl;
     });
     daemon.set_verbose(verbose);

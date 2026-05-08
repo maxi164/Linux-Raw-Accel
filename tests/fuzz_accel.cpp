@@ -105,7 +105,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     // ── Path 1: modifier::modify() ──────────────────────────────────────────
     {
         vec2d input = { dx, dy };
-        double dpi_factor = static_cast<double>(dp.dev_cfg.dpi) / 1000.0;
+        double dpi_factor = NORMALIZED_DPI / static_cast<double>(dp.dev_cfg.dpi);
         mod.modify(input, sp, settings, dpi_factor, time_ms);
 
         // NaN must never escape the pipeline
@@ -116,7 +116,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     {
         double rx = 0, ry = 0;
         int ox = 0, oy = 0;
-        double dpi_factor = static_cast<double>(dp.dev_cfg.dpi) / 1000.0;
+        double dpi_factor = NORMALIZED_DPI / static_cast<double>(dp.dev_cfg.dpi);
 
         // Re-init speed_processor since we used it above
         speed_processor sp2;

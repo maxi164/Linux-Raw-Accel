@@ -1,6 +1,7 @@
 // ── Mouse device discovery (no root needed) ───────────────────────────────────
 #include <linux/input.h>
 #include <fcntl.h>
+#include <cerrno>
 
 /// Resolve a /dev/input/eventN path to its stable /dev/input/by-id/... symlink.
 /// Returns the by-id path if found, otherwise returns the original event_node.
@@ -94,10 +95,12 @@ static std::vector<InputDeviceInfo> list_mice() {
                 // Last space-separated word is LS word
                 auto sp = bits.rfind(' ');
                 std::string lsw = (sp != std::string::npos) ? bits.substr(sp + 1) : bits;
-                try {
-                    unsigned long v = std::stoul(lsw, nullptr, 16);
-                    if ((v & 0x3) == 0x3) cur.has_rel_xy = true; // REL_X(0) + REL_Y(1)
-                } catch (...) {}
+                char* end = nullptr;
+                errno = 0;
+                unsigned long v = std::strtoul(lsw.c_str(), &end, 16);
+                if (end != lsw.c_str() && *end == '\0' && errno != ERANGE &&
+                    (v & 0x3) == 0x3)
+                    cur.has_rel_xy = true; // REL_X(0) + REL_Y(1)
             }
         }
     }
@@ -160,7 +163,7 @@ void refresh_mice_combo(AppState* S, bool is_auto) {
     if (list_changed || !is_auto) {
         // Rebuild the GtkStringList model and assign it to the drop-down.
         GtkStringList* sl = gtk_string_list_new(nullptr);
-        gtk_string_list_append(sl, "All devices (default)");
+        gtk_string_list_append(sl, ui_text(S, "All devices (default)", "Tüm cihazlar (varsayılan)"));
         for (auto& m : S->mice_list) {
             std::string lbl = m.name + "  [" + m.event_node + "]";
             gtk_string_list_append(sl, lbl.c_str());
@@ -186,8 +189,9 @@ void refresh_mice_combo(AppState* S, bool is_auto) {
     S->updating = prev_updating;
 
     if (!is_auto) {
-        set_status(S, "Device list refreshed: " +
-                   std::to_string(S->mice_list.size()) + " mouse(s) found.");
+        set_status(S, std::string(ui_text(S, "Device list refreshed: ", "Cihaz listesi yenilendi: ")) +
+                   std::to_string(S->mice_list.size()) +
+                   ui_text(S, " mouse(s) found.", " fare bulundu."));
     }
 }
 

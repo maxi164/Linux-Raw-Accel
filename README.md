@@ -119,8 +119,8 @@ kill -HUP $(cat /run/rawaccel.pid)
 | `exponent_power` | Power/synchronous mode exponent | `0.05` |
 | `limit` | Maximum gain asymptote (jump/natural) | `1.5` |
 | `decay_rate` | Natural mode decay rate | `0.1` |
-| `motivity` | Natural mode motivity | `1.5` |
-| `gamma` | Classic mode gamma | `1.0` |
+| `motivity` | Compatibility field; stored but currently not used by Natural mode | `1.5` |
+| `gamma` | Compatibility field; stored but currently not used by Classic mode | `1.0` |
 | `input_offset` | Speed threshold before acceleration starts (ips) | `0` |
 | `output_offset` | Output offset (power mode) | `0` |
 | `scale` | Scale factor (power mode) | `1.0` |
@@ -155,7 +155,7 @@ kill -HUP $(cat /run/rawaccel.pid)
 |-----------|-------------|---------|
 | `dpi` | Mouse DPI | `800` |
 | `polling_rate` | Mouse polling rate (Hz) | `1000` |
-| `output_dpi` | Output DPI normalization value | `1000` |
+| `output_dpi` | Output count normalization (`1000` = no extra output scale) | `1000` |
 | `lr_ratio` | Left/right output DPI ratio (`1.0` = off) | `1.0` |
 | `ud_ratio` | Up/down output DPI ratio (`1.0` = off) | `1.0` |
 
@@ -207,14 +207,16 @@ rawaccel-cli set-param office-mouse device_id /dev/input/event4
     {
       "name": "gaming",
       "device_id": "",
-      "dev_cfg": { "dpi": 1600, "polling_rate": 1000 },
-      "prof": { ... }
+      "dpi": 1600,
+      "polling_rate": 1000,
+      "profile": { ... }
     },
     {
       "name": "office",
       "device_id": "/dev/input/event4",
-      "dev_cfg": { "dpi": 800, "polling_rate": 125 },
-      "prof": { ... }
+      "dpi": 800,
+      "polling_rate": 125,
+      "profile": { ... }
     }
   ]
 }
@@ -249,7 +251,7 @@ echo "uinput" | sudo tee /etc/modules-load.d/rawaccel.conf
 1. `rawaccel-daemon` scans `/dev/input/event*` for physical mice
 2. Each mouse is grabbed with `EVIOCGRAB` (raw events go only to the daemon)
 3. A virtual mouse is created via `libevdev-uinput`
-4. For each movement event, the daemon computes speed in ips (using DPI + polling rate)
+4. For each movement event, the daemon computes speed in ips (using DPI + event timing)
 5. The Raw Accel algorithm is applied (gain multiplier)
 6. The result is written to the virtual device → seen by XOrg/Wayland
 7. Config reloads are **live** (no grab release): settings update in-place without any mouse dropout
@@ -428,6 +430,7 @@ RawAccel Linux works at the kernel input layer (evdev + uinput), **below** the d
 - System Settings → Mouse & Touchpad → disable "Mouse Acceleration"
 
 **Config file location:**
-- Default: `~/.config/rawaccel/settings.json`
-- When run with `sudo`: resolves to the real user's home via `$SUDO_USER`
-- Override: `rawaccel-daemon -c /path/to/settings.json`
+- Running systemd daemon: `/etc/rawaccel/settings.json`
+- GUI/CLI ask the running daemon for its config path over IPC and edit the same file
+- Daemon stopped / standalone tools: `~/.config/rawaccel/settings.json`
+- Override: `rawaccel-daemon -c /path/to/settings.json` or `rawaccel-cli -c /path/to/settings.json`

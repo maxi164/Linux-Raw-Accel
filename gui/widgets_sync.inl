@@ -279,7 +279,7 @@ static bool has_systemd_rawaccel_unit() {
            fs::exists("/usr/lib/systemd/system/rawaccel.service");
 }
 
-static bool pkexec_systemctl_async(const char* action, std::string* err_out = nullptr) {
+static bool systemctl_async(const char* action, std::string* err_out = nullptr) {
     pid_t pid = fork();
     if (pid < 0) {
         if (err_out) *err_out = "fork() failed.";
@@ -287,7 +287,7 @@ static bool pkexec_systemctl_async(const char* action, std::string* err_out = nu
     }
     if (pid == 0) {
         setsid();
-        execlp("pkexec", "pkexec", "systemctl", action, "rawaccel", (char*)nullptr);
+        execlp("systemctl", "systemctl", action, "rawaccel", (char*)nullptr);
         _exit(127);
     }
     // Reap the child asynchronously so it doesn't become a zombie.
@@ -300,10 +300,8 @@ static bool pkexec_systemctl_async(const char* action, std::string* err_out = nu
         return G_SOURCE_REMOVE;
     }, pid_ptr);
     if (err_out) err_out->clear();
-    // BUG-2: previously returned false unconditionally, which caused callers to
-    // fall through to the *direct* daemon-start path and end up spawning the
-    // daemon twice (once via systemctl, once directly).  We can't easily wait
-    // on pkexec without freezing the GUI, so we optimistically return true:
+    // We can't easily wait on systemctl without freezing the GUI, so we
+    // optimistically return true:
     // the timeout above reaps the child, and the caller's status-poll picks up
     // the actual daemon state a second later.
     return true;
@@ -332,8 +330,10 @@ void on_profile_changed(GtkDropDown* dd, GParamSpec*, gpointer user_data) {
     // Warn in the status bar if switching away from a profile with unsaved changes.
     // A modal dialog here would be too disruptive for a dropdown switch.
     if (S->unsaved) {
-        set_status(S, "Warning: unsaved changes to \"" + cur_prof(S).name + "\" were discarded.");
-        S->unsaved = false;
+        set_status(S, std::string(ui_text(S, "Warning: unsaved changes to \"", "Uyarı: \"")) +
+                   cur_prof(S).name +
+                   ui_text(S, "\" are kept in memory; Save/Apply before quitting.",
+                           "\" profilindeki kaydedilmemiş değişiklikler bellekte tutuluyor; çıkmadan önce Kaydet/Uygula."));
     }
 
     S->current_profile_idx = idx;
@@ -356,7 +356,8 @@ void on_save_clicked(GtkButton*, gpointer user_data) {
     auto* S = static_cast<AppState*>(user_data);
     // Save As: always ask for a name so the default profile is never overwritten.
     std::string cur_name = S->config.profiles.empty() ? "" : cur_prof(S).name;
-    show_input_dialog(S, "Save Profile As", "Profile name", cur_name.c_str(),
+    show_input_dialog(S, ui_text(S, "Save Profile As", "Profili Farklı Kaydet"),
+        ui_text(S, "Profile name", "Profil adı"), cur_name.c_str(),
         [S](const std::string& name) {
             if (name.empty()) return;
             // If a profile with this name already exists, overwrite it;
@@ -388,7 +389,8 @@ void on_apply_clicked(GtkButton*, gpointer user_data) {
     auto* S = static_cast<AppState*>(user_data);
     // Apply & Reload: same Save As logic, then reload the daemon.
     std::string cur_name = S->config.profiles.empty() ? "" : cur_prof(S).name;
-    show_input_dialog(S, "Save Profile As", "Profile name", cur_name.c_str(),
+    show_input_dialog(S, ui_text(S, "Save Profile As", "Profili Farklı Kaydet"),
+        ui_text(S, "Profile name", "Profil adı"), cur_name.c_str(),
         [S](const std::string& name) {
             if (name.empty()) return;
             widgets_to_profile(S);
@@ -419,15 +421,15 @@ void on_daemon_start(GtkButton*, gpointer user_data) {
     auto* S = static_cast<AppState*>(user_data);
     if (has_systemd_rawaccel_unit()) {
         std::string err;
-        if (pkexec_systemctl_async("start", &err)) {
+        if (systemctl_async("start", &err)) {
             g_timeout_add(1000, [](gpointer p) -> gboolean {
                 update_daemon_status(static_cast<AppState*>(p));
                 return G_SOURCE_REMOVE;
             }, S);
-            set_status(S, "Starting daemon via systemd...");
+            set_status(S, ui_text(S, "Starting daemon via systemd...", "Daemon systemd ile başlatılıyor..."));
             return;
         }
-        set_status(S, err + " Falling back to direct daemon start...");
+        set_status(S, err + ui_text(S, " Falling back to direct daemon start...", " Doğrudan daemon başlatmaya geçiliyor..."));
     }
 
     // Candidate paths in preference order
@@ -455,7 +457,8 @@ void on_daemon_start(GtkButton*, gpointer user_data) {
         if (fs::exists(p)) daemon_path = p;
     }
     if (daemon_path.empty()) {
-        set_status(S, "rawaccel-daemon not found. Install with: sudo scripts/install.sh");
+        set_status(S, ui_text(S, "rawaccel-daemon not found. Install with: sudo scripts/install.sh",
+                              "rawaccel-daemon bulunamadı. Kurulum: sudo scripts/install.sh"));
         return;
     }
 
@@ -487,7 +490,7 @@ void on_daemon_start(GtkButton*, gpointer user_data) {
             return G_SOURCE_REMOVE;
         }, pid_ptr);
     } else {
-        set_status(S, "fork() failed.");
+        set_status(S, ui_text(S, "fork() failed.", "fork() başarısız."));
         return;
     }
     // Update daemon status after a short delay (daemon needs time to start)
@@ -495,19 +498,19 @@ void on_daemon_start(GtkButton*, gpointer user_data) {
         update_daemon_status(static_cast<AppState*>(p));
         return G_SOURCE_REMOVE;
     }, S);
-    set_status(S, "Starting daemon...");
+    set_status(S, ui_text(S, "Starting daemon...", "Daemon başlatılıyor..."));
 }
 
 void on_daemon_stop(GtkButton*, gpointer user_data) {
     auto* S = static_cast<AppState*>(user_data);
     if (has_systemd_rawaccel_unit()) {
         std::string err;
-        if (pkexec_systemctl_async("stop", &err)) {
+        if (systemctl_async("stop", &err)) {
             g_timeout_add(800, [](gpointer p) -> gboolean {
                 update_daemon_status(static_cast<AppState*>(p));
                 return G_SOURCE_REMOVE;
             }, S);
-            set_status(S, "Stopping daemon via systemd...");
+            set_status(S, ui_text(S, "Stopping daemon via systemd...", "Daemon systemd ile durduruluyor..."));
             return;
         }
     }
@@ -520,7 +523,7 @@ void on_daemon_stop(GtkButton*, gpointer user_data) {
         update_daemon_status(static_cast<AppState*>(p));
         return G_SOURCE_REMOVE;
     }, S);
-    set_status(S, "Stopping daemon...");
+    set_status(S, ui_text(S, "Stopping daemon...", "Daemon durduruluyor..."));
 }
 
 void on_daemon_reload(GtkButton*, gpointer user_data) {
@@ -528,7 +531,7 @@ void on_daemon_reload(GtkButton*, gpointer user_data) {
     // Prefer IPC reload (works without signal permissions); fall back to SIGHUP.
     std::string ipc_resp = daemon_ipc_query("reload");
     if (!ipc_resp.empty() && ipc_resp.find("ok") != std::string::npos) {
-        set_status(S, "Daemon reloaded (IPC).");
+        set_status(S, ui_text(S, "Daemon reloaded (IPC).", "Daemon yenilendi (IPC)."));
         update_daemon_status(S);
         return;
     }
@@ -536,8 +539,8 @@ void on_daemon_reload(GtkButton*, gpointer user_data) {
     if (!daemon_send_signal(SIGHUP, &err)) {
         if (has_systemd_rawaccel_unit()) {
             std::string serr;
-            if (pkexec_systemctl_async("reload", &serr)) {
-                set_status(S, "Daemon reloaded (systemd).");
+            if (systemctl_async("reload", &serr)) {
+                set_status(S, ui_text(S, "Daemon reloaded (systemd).", "Daemon yenilendi (systemd)."));
                 update_daemon_status(S);
                 return;
             }
@@ -548,6 +551,6 @@ void on_daemon_reload(GtkButton*, gpointer user_data) {
             return;
         }
     }
-    set_status(S, "Daemon reloaded (SIGHUP).");
+    set_status(S, ui_text(S, "Daemon reloaded (SIGHUP).", "Daemon yenilendi (SIGHUP)."));
     update_daemon_status(S);
 }

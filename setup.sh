@@ -80,16 +80,37 @@ is_arch_like()   { [[ "$DISTRO_ID" =~ (arch|cachyos|manjaro|endeavouros) ]]; }
 is_debian_like() { [[ "$DISTRO_ID" =~ (debian|ubuntu|mint|pop) ]]; }
 is_fedora_like() { [[ "$DISTRO_ID" =~ (fedora|rhel|centos|nobara) ]]; }
 
+# CachyOS mirrors can occasionally serve a repo DB signed with a key that the
+# local pacman rejects until mirrors are re-ranked and the DB is force-refreshed.
+install_arch_deps() {
+    local packages=(
+        base-devel cmake pkgconf libevdev gtk4 polkit systemd python
+        qt6-tools
+    )
+
+    if pacman -Syu --needed --noconfirm "${packages[@]}"; then
+        return
+    fi
+
+    warn "pacman başarısız oldu; imza/mirror senkronizasyonu sorunu olabilir."
+    if command -v cachyos-rate-mirrors >/dev/null; then
+        warn "CachyOS/Arch mirror listeleri yenileniyor: cachyos-rate-mirrors"
+        cachyos-rate-mirrors || warn "cachyos-rate-mirrors başarısız oldu; yine de pacman tekrar denenecek."
+    else
+        warn "cachyos-rate-mirrors bulunamadı; sadece pacman veritabanı zorla yenilenecek."
+    fi
+
+    warn "Paket veritabanları zorla yenilenerek bağımlılıklar tekrar kuruluyor..."
+    pacman -Syyu --needed --noconfirm "${packages[@]}"
+}
+
 # ── 1) Bağımlılıklar ─────────────────────────────────────────────────────────
 install_deps() {
     if [[ $SKIP_DEPS -eq 1 ]]; then warn "--no-deps verildi, bağımlılık kurulumu atlandı."; return; fi
     say "[1/7] Bağımlılıklar kuruluyor..."
     if is_arch_like; then
         ok "Arch/CachyOS tespit edildi → pacman"
-        # qt6-tools: qdbus6 → KDE Plasma 6 canlı reconfigure
-        pacman -S --needed --noconfirm \
-            base-devel cmake pkgconf libevdev gtk4 polkit systemd python \
-            qt6-tools
+        install_arch_deps
     elif is_debian_like; then
         ok "Debian/Ubuntu tespit edildi → apt"
         export DEBIAN_FRONTEND=noninteractive
@@ -208,6 +229,17 @@ do_install() {
         fi
         cp "$REAL_HOME/.config/rawaccel/settings.json" /etc/rawaccel/settings.json
         ok "Kullanıcı config /etc/rawaccel/'a senkronlandı."
+    fi
+
+    # System service /etc/rawaccel/settings.json okur; GUI/CLI de daemon
+    # çalışıyorsa aynı yolu IPC'den öğrenip oraya yazar. Atomic save_config()
+    # temp dosya oluşturup rename yaptığı için dizinin de group-writable olması
+    # gerekir.
+    if getent group input >/dev/null; then
+        chgrp input /etc/rawaccel /etc/rawaccel/settings.json
+        chmod 2775 /etc/rawaccel
+        chmod 664 /etc/rawaccel/settings.json
+        ok "/etc/rawaccel input grubu tarafından yazılabilir yapıldı."
     fi
 
     # uinput modülü
@@ -334,8 +366,9 @@ print_summary() {
     echo "  journalctl -u rawaccel -f"
     echo ""
     echo "${C_BOLD}Config:${C_RESET}"
-    echo "  /etc/rawaccel/settings.json       (servis kullanıyor)"
-    echo "  ~/.config/rawaccel/settings.json  (GUI kullanıyor)"
+    echo "  /etc/rawaccel/settings.json       (servis/daemon kullanıyor)"
+    echo "  GUI/CLI daemon çalışıyorsa aynı dosyayı düzenler;"
+    echo "  ~/.config/rawaccel/settings.json  (daemon yokken kullanıcı fallback'i)"
     echo ""
     if [[ -n "$REAL_USER" && "$REAL_USER" != "root" ]] && ! id -nG "$REAL_USER" | grep -qw input; then
         warn "$REAL_USER 'input' grubuna eklendi ama mevcut oturumda etkin değil."

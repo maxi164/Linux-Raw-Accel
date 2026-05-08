@@ -84,14 +84,14 @@ struct lat_stats {
     // ── Read path (caller must hold mtx, or use snapshot_and_reset) ─────────
 
     double avg_us() const {
-        return count > 0 ? sum_us / count : 0.0;
+        return count > 0 ? sum_us / static_cast<double>(count) : 0.0;
     }
 
     /// Compute a percentile (0–100) from the histogram.  O(BUCKETS).
     /// Caller must hold mtx.
     double percentile(double pct) const {
         if (count == 0) return 0.0;
-        uint64_t target = static_cast<uint64_t>(std::ceil(count * pct / 100.0));
+        uint64_t target = static_cast<uint64_t>(std::ceil(static_cast<double>(count) * pct / 100.0));
         uint64_t cum = 0;
         for (int i = 0; i < BUCKETS; i++) {
             cum += hist[i];
@@ -109,11 +109,11 @@ struct lat_stats {
         uint64_t hist[BUCKETS];
         uint64_t over;
 
-        double avg_us() const { return count > 0 ? sum_us / count : 0.0; }
+        double avg_us() const { return count > 0 ? sum_us / static_cast<double>(count) : 0.0; }
 
         double percentile(double pct) const {
             if (count == 0) return 0.0;
-            uint64_t target = static_cast<uint64_t>(std::ceil(count * pct / 100.0));
+            uint64_t target = static_cast<uint64_t>(std::ceil(static_cast<double>(count) * pct / 100.0));
             uint64_t cum = 0;
             for (int i = 0; i < BUCKETS; i++) {
                 cum += hist[i];

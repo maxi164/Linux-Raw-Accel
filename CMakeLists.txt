@@ -9,6 +9,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(BUILD_GUI    "Build GTK4 GUI"    ON)
 option(BUILD_DAEMON "Build daemon"      ON)
 option(BUILD_CLI    "Build CLI tool"    ON)
+option(RAWACCEL_PORTABLE "Do not use -march=native" OFF)
+if(DEFINED ENV{RAWACCEL_PORTABLE} AND "$ENV{RAWACCEL_PORTABLE}" STREQUAL "1")
+    set(RAWACCEL_PORTABLE ON)
+endif()
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 find_package(PkgConfig REQUIRED)
@@ -22,7 +26,10 @@ endif()
 include_directories(include)
 
 # ── Common optimization flags ─────────────────────────────────────────────────
-add_compile_options(-O3 -march=native -Wall -Wextra -Wno-unused-parameter)
+add_compile_options(-O3 -Wall -Wextra -Wno-unused-parameter)
+if(NOT RAWACCEL_PORTABLE)
+    add_compile_options(-march=native)
+endif()
 
 # ── Shared config library ─────────────────────────────────────────────────────
 add_library(rawaccel-config STATIC src/config.cpp)
@@ -94,9 +101,14 @@ install(FILES scripts/rawaccel.service
         DESTINATION /usr/lib/systemd/system)
 
 # ── Config dir ────────────────────────────────────────────────────────────────
-install(FILES config/default.json
-        DESTINATION /etc/rawaccel
-        RENAME settings.json)
+install(CODE "
+    file(MAKE_DIRECTORY \"/etc/rawaccel\")
+    if(NOT EXISTS \"/etc/rawaccel/settings.json\")
+        file(INSTALL DESTINATION \"/etc/rawaccel\" TYPE FILE RENAME \"settings.json\" FILES \"${CMAKE_SOURCE_DIR}/config/default.json\")
+    else()
+        message(STATUS \"Keeping existing /etc/rawaccel/settings.json\")
+    endif()
+")
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 option(BUILD_TESTS "Build unit tests" ON)
@@ -121,4 +133,5 @@ message(STATUS "  Build daemon : ${BUILD_DAEMON}")
 message(STATUS "  Build CLI    : ${BUILD_CLI}")
 message(STATUS "  Build GUI    : ${BUILD_GUI}")
 message(STATUS "  Build tests  : ${BUILD_TESTS}")
+message(STATUS "  Portable     : ${RAWACCEL_PORTABLE}")
 message(STATUS "")

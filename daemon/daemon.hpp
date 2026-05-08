@@ -34,9 +34,9 @@ struct mouse_device {
 
     // Timing
     double last_time_ms = 0;
-    // R13-perf: pre-computed dpi / NORMALIZED_DPI — updated only on profile change,
+    // R13-perf: pre-computed NORMALIZED_DPI / dpi — updated only on profile change,
     // avoids a floating-point division on every mouse event.
-    double dpi_factor   = 800.0 / NORMALIZED_DPI;
+    double dpi_factor   = NORMALIZED_DPI / 800.0;
 
     // Subpixel accumulation: carry fractional remainder between frames
     double remainder_x   = 0.0;

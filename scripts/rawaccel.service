@@ -14,9 +14,9 @@ Documentation=https://github.com/rawaccel-linux/rawaccel-linux
 [Service]
 Type=simple
 # Config is stored in /etc/rawaccel/settings.json when running as a system service.
-# The GUI/CLI store settings in ~/.config/rawaccel/settings.json for the user;
-# run `rawaccel-cli` or the GUI to create/edit profiles, then they are copied to
-# /etc/rawaccel/ by the install script or symlinked via ExecStartPre below.
+# GUI/CLI ask the running daemon for this path over IPC and edit the same file.
+# The installer makes /etc/rawaccel group-writable for the input group so normal
+# users can save settings without diverging into ~/.config/rawaccel.
 ExecStart=/usr/local/bin/rawaccel-daemon -c /etc/rawaccel/settings.json
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure

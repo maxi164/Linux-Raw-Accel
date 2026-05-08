@@ -385,20 +385,20 @@ void rebuild_lut_list(AppState* S) {
         gtk_widget_set_margin_top(hbox, 2);
         gtk_widget_set_margin_bottom(hbox, 2);
 
-        GtkWidget* lbl_s = gtk_label_new("Spd:");
+        GtkWidget* lbl_s = gtk_label_new(ui_text(S, "Spd:", "Hız:"));
         GtkWidget* spin_s = gtk_spin_button_new_with_range(0.0, 500.0, 0.5);
         gtk_spin_button_set_digits(GTK_SPIN_BUTTON(spin_s), 2);
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(spin_s), pts[i].first);
         gtk_widget_set_hexpand(spin_s, TRUE);
 
-        GtkWidget* lbl_g = gtk_label_new("Gain:");
+        GtkWidget* lbl_g = gtk_label_new(ui_text(S, "Gain:", "Gain:"));
         GtkWidget* spin_g = gtk_spin_button_new_with_range(0.01, 50.0, 0.01);
         gtk_spin_button_set_digits(GTK_SPIN_BUTTON(spin_g), 3);
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(spin_g), pts[i].second);
         gtk_widget_set_hexpand(spin_g, TRUE);
 
         GtkWidget* del_btn = gtk_button_new_from_icon_name("edit-delete-symbolic");
-        gtk_widget_set_tooltip_text(del_btn, "Remove this point");
+        gtk_widget_set_tooltip_text(del_btn, ui_text(S, "Remove this point", "Bu noktayı sil"));
 
         gtk_box_append(GTK_BOX(hbox), lbl_s);
         gtk_box_append(GTK_BOX(hbox), spin_s);
@@ -479,7 +479,7 @@ void on_lut_add_point(GtkButton*, gpointer user_data) {
     auto& ax = cur_prof(S).prof.accel_x;
     auto  pts = lut_get_points(ax);
     if ((int)pts.size() >= (int)LUT_POINTS_CAPACITY) {
-        set_status(S, "Maximum number of points reached.");
+        set_status(S, ui_text(S, "Maximum number of points reached.", "Maksimum nokta sayısına ulaşıldı."));
         return;
     }
     // Insert a new point just beyond the current last point

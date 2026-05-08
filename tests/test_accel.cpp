@@ -4908,24 +4908,40 @@ static void test_lat_stats_move_semantics() {
 static void test_dpi_factor_precompute() {
     SECTION("R13 — dpi_factor pre-compute consistency");
 
-    // Verify that dpi_factor = dpi / NORMALIZED_DPI for various DPI values
+    // Verify that dpi_factor = NORMALIZED_DPI / dpi for various DPI values.
+    // This converts raw counts/ms into physical inches/s.
     for (int dpi : {100, 400, 800, 1600, 3200, 16000, 32000}) {
-        double expected = dpi / NORMALIZED_DPI;
+        double expected = NORMALIZED_DPI / dpi;
         // Simulate what apply_profile does:
-        double computed = std::clamp(dpi, 1, 32000) / NORMALIZED_DPI;
+        double computed = NORMALIZED_DPI / std::clamp(dpi, 1, 32000);
         EXPECT_NEAR(computed, expected, 1e-12);
     }
 
     // Extreme: DPI=1 (min), DPI=32000 (max)
-    EXPECT_NEAR(1.0 / NORMALIZED_DPI, 0.001, 1e-9);
-    EXPECT_NEAR(32000.0 / NORMALIZED_DPI, 32.0, 1e-9);
+    EXPECT_NEAR(NORMALIZED_DPI / 1.0, 1000.0, 1e-9);
+    EXPECT_NEAR(NORMALIZED_DPI / 32000.0, 0.03125, 1e-12);
 
     // Verify the division result is finite and positive for all valid DPI
     for (int dpi = 1; dpi <= 32000; dpi += 1000) {
-        double f = dpi / NORMALIZED_DPI;
+        double f = NORMALIZED_DPI / dpi;
         EXPECT(std::isfinite(f));
         EXPECT(f > 0);
     }
+
+    // output_dpi is a real output normalization factor, not a dead config field.
+    profile prof;
+    prof.output_dpi = 2000.0; // 2x output counts after acceleration
+    prof.accel_x.mode = accel_mode::noaccel;
+    prof.accel_y.mode = accel_mode::noaccel;
+    modifier_settings settings;
+    settings.prof = prof;
+    init_settings(settings);
+    speed_processor sp; sp.init(prof.speed_processor_args);
+    modifier mod;
+    vec2d in = { 10.0, -4.0 };
+    mod.modify(in, sp, settings, 1.0, 1.0);
+    EXPECT_NEAR(in.x, 20.0, 1e-9);
+    EXPECT_NEAR(in.y, -8.0, 1e-9);
 }
 
 // R14 — magnitude() uses std::hypot (overflow-safe)
@@ -5065,7 +5081,7 @@ static void test_modifier_full_pipeline_stress() {
     modifier_settings ms; ms.prof = p; init_settings(ms);
     speed_processor   sp; sp.init(p.speed_processor_args);
     modifier          mod;
-    double dpi_factor = 1600.0 / NORMALIZED_DPI;
+    double dpi_factor = NORMALIZED_DPI / 1600.0;
 
     // Run 10000 events through the pipeline
     double rem_x = 0, rem_y = 0;

@@ -177,6 +177,7 @@ struct modifier_flags {
     bool apply_snap               = false;
     bool clamp_speed              = false;
     bool apply_directional_weight = false;
+    bool apply_output_dpi         = false;
     bool apply_dir_mul_x          = false;
     bool apply_dir_mul_y          = false;
 
@@ -191,6 +192,7 @@ struct modifier_flags {
         apply_directional_weight = args.speed_processor_args.whole &&
                                    std::fabs(args.range_weights.x - args.range_weights.y) > 1e-9;
         compute_ref_angle        = apply_snap || apply_directional_weight;
+        apply_output_dpi         = std::fabs(args.output_dpi - NORMALIZED_DPI) > 1e-9;
         apply_dir_mul_x          = std::fabs(args.lr_output_dpi_ratio - 1.0) > 1e-9;
         apply_dir_mul_y          = std::fabs(args.ud_output_dpi_ratio - 1.0) > 1e-9;
     }
@@ -203,6 +205,7 @@ struct modifier_settings {
     struct data_t {
         modifier_flags flags;
         vec2d          rot_direction = { 1, 0 };
+        double         output_dpi_factor = 1.0;
         accel_union    accel_x;
         accel_union    accel_y;
     } data = {};
@@ -212,6 +215,10 @@ inline void init_settings(modifier_settings& settings) {
     settings.data.accel_x.init(settings.prof.accel_x);
     settings.data.accel_y.init(settings.prof.accel_y);
     settings.data.rot_direction = direction(settings.prof.degrees_rotation);
+    double output_dpi = std::isfinite(settings.prof.output_dpi)
+        ? std::clamp(settings.prof.output_dpi, 1.0, 32000.0)
+        : NORMALIZED_DPI;
+    settings.data.output_dpi_factor = output_dpi / NORMALIZED_DPI;
     settings.data.flags         = modifier_flags(settings.prof);
 }
 
@@ -223,7 +230,7 @@ public:
     /// @param in      Raw mouse delta [counts]; modified in place.
     /// @param sp      Per-axis speed processor (stateful).
     /// @param settings Precomputed modifier settings.
-    /// @param dpi_factor  DPI / NORMALIZED_DPI
+    /// @param dpi_factor  NORMALIZED_DPI / device_dpi
     /// @param time    Time since last event [ms]
     void modify(vec2d& in, speed_processor& sp,
                 const modifier_settings& settings,
@@ -336,7 +343,13 @@ public:
             }
         }
 
-        // 5. Directional DPI multipliers
+        // 5. Output DPI normalization
+        if (flags.apply_output_dpi) {
+            in.x *= data.output_dpi_factor;
+            in.y *= data.output_dpi_factor;
+        }
+
+        // 6. Directional DPI multipliers
         // R6: guard against division-by-zero when ratio is near 0 (sanitize clamps to
         // >= 0.01, but defend in depth for programmatic paths that skip sanitize).
         if (flags.apply_dir_mul_x && std::fabs(args.lr_output_dpi_ratio) > 1e-9) {

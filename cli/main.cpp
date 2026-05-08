@@ -119,6 +119,18 @@ static std::string daemon_ipc_query(const std::string& cmd) {
     return {};
 }
 
+/// Return the config path currently used by the running daemon, if reachable.
+/// This prevents the CLI from editing ~/.config/rawaccel while the systemd
+/// daemon is actually reading /etc/rawaccel/settings.json.
+static std::string daemon_config_path_from_ipc() {
+    std::string resp = daemon_ipc_query("status");
+    if (resp.empty()) return {};
+    auto j = nlohmann::json::parse(resp, nullptr, false);
+    if (!j.is_discarded() && j.contains("config") && j["config"].is_string())
+        return j["config"].get<std::string>();
+    return {};
+}
+
 /// Ask the daemon to reload its config.  Tries the IPC socket first (works
 /// for any user in the input group regardless of who the daemon runs as),
 /// then falls back to SIGHUP for older daemons that don't speak IPC.
@@ -154,6 +166,22 @@ static int finite_double_to_int(double v) {
     if (v < static_cast<double>(INT_MIN)) return INT_MIN;
     if (v > static_cast<double>(INT_MAX)) return INT_MAX;
     return static_cast<int>(v);
+}
+
+static app_config make_default_config() {
+    app_config cfg;
+    device_profile dp;
+    dp.name = "default";
+    dp.dev_cfg.dpi = 800;
+    dp.dev_cfg.polling_rate = 1000;
+    cfg.profiles.push_back(dp);
+    return cfg;
+}
+
+static bool path_is_missing(const std::string& path) {
+    errno = 0;
+    if (access(path.c_str(), F_OK) == 0) return false;
+    return errno == ENOENT;
 }
 
 // ── Profile display ────────────────────────────────────────────────────────────
@@ -201,8 +229,11 @@ static void print_profile(const device_profile& dp) {
     auto& p = dp.prof;
     std::cout << "Profile: " << dp.name << "\n";
     std::cout << "  device_id:    " << (dp.device_id.empty() ? "(all)" : dp.device_id) << "\n";
+    std::cout << "  disabled:     " << (dp.dev_cfg.disable ? "true" : "false") << "\n";
     if (p.raw_passthrough) {
         std::cout << "  raw:          true  (all processing bypassed)\n";
+        if (p.accel_x.mode != accel_mode::noaccel || p.accel_y.mode != accel_mode::noaccel)
+            std::cout << "  note:         acceleration parameters are ignored while raw=true\n";
         std::cout << "  dpi:          " << dp.dev_cfg.dpi         << "\n";
         std::cout << "  polling_rate: " << dp.dev_cfg.polling_rate << "\n";
         return;
@@ -371,7 +402,7 @@ static int cmd_set_param(app_config& cfg, const std::string& config_path,
 
     // Parse numeric value only for numeric params (not for string/bool keys)
     static const std::vector<std::string> non_numeric_keys = {
-        "mode", "gain", "cap_mode", "distance_mode", "raw"
+        "mode", "gain", "cap_mode", "distance_mode", "raw", "disable"
     };
     double v = 0;
     bool need_numeric = true;
@@ -452,6 +483,14 @@ static int cmd_set_param(app_config& cfg, const std::string& config_path,
             return 1;
         }
         dp->prof.raw_passthrough = b;
+    }
+    else if (key == "disable")          {
+        bool b;
+        if (!parse_strict_bool(val, b)) {
+            std::cerr << "Invalid bool for 'disable': '" << val << "'\n";
+            return 1;
+        }
+        dp->dev_cfg.disable = b;
     }
     else if (key == "rotation")         { dp->prof.degrees_rotation = v; }
     else if (key == "snap")             { dp->prof.degrees_snap = v; }
@@ -646,7 +685,9 @@ static int cmd_status(const std::string& config_path) {
             }
             std::cout << "  (mode: " << mode_s
                       << ", DPI: " << p.dev_cfg.dpi
-                      << ", poll: " << p.dev_cfg.polling_rate << "Hz)\n";
+                      << ", poll: " << p.dev_cfg.polling_rate << "Hz";
+            if (p.dev_cfg.disable) std::cout << ", disabled";
+            std::cout << ")\n";
         }
         // Latency hint: tell user how to get stats
         if (running)
@@ -687,6 +728,7 @@ Options:
 
 Parameters (for set-param):
   raw               true|false|1|0  (raw passthrough — bypass all processing)
+  disable           true|false|1|0  (leave matched device ungrabbed)
   mode              classic|power|natural|jump|synchronous|lookup|noaccel
   gain              true|false|1|0  (gain mode on/off)
   acceleration      Acceleration multiplier (e.g. 0.005)
@@ -694,8 +736,8 @@ Parameters (for set-param):
   exponent_power    Power/synchronous exponent (e.g. 0.05)
   limit             Upper multiplier asymptote, jump/natural (e.g. 1.5)
   decay_rate        Natural decay rate (e.g. 0.1)
-  motivity          Natural motivity (e.g. 1.5)
-  gamma             Classic gamma (e.g. 1.0)
+  motivity          Compatibility field (stored; currently not used)
+  gamma             Compatibility field (stored; currently not used)
   input_offset      Speed offset before acceleration starts
   output_offset     Output offset (power mode)
   scale             Scale factor (power mode)
@@ -733,7 +775,7 @@ Examples:
 
 // ── main ──────────────────────────────────────────────────────────────────────
 
-int main(int argc, char* argv[]) {
+static int run_cli(int argc, char* argv[]) {
     std::string config_path;
     std::vector<std::string> args;
 
@@ -753,7 +795,10 @@ int main(int argc, char* argv[]) {
 
     if (args.empty()) { print_help(); return 0; }
 
-    if (config_path.empty()) config_path = find_config_path();
+    if (config_path.empty()) {
+        std::string daemon_cfg = daemon_config_path_from_ipc();
+        config_path = daemon_cfg.empty() ? find_config_path() : daemon_cfg;
+    }
 
     // Commands that don't need config loaded
     if (args[0] == "reload") return cmd_reload();
@@ -781,19 +826,30 @@ int main(int argc, char* argv[]) {
     app_config cfg;
     try {
         cfg = load_config(config_path);
-    } catch (...) {
-        // Create minimal default
-        device_profile dp;
-        dp.name = "default";
-        dp.dev_cfg.dpi = 800;
-        dp.dev_cfg.polling_rate = 1000;
-        cfg.profiles.push_back(dp);
+    } catch (const std::exception& e) {
+        // Only auto-create when the file is genuinely missing.  A malformed or
+        // unreadable existing config must be preserved, not overwritten by `list`.
+        if (!path_is_missing(config_path)) {
+            std::cerr << "Config load failed: " << e.what() << "\n"
+                      << "Refusing to overwrite existing config: " << config_path << "\n";
+            return 1;
+        }
+        cfg = make_default_config();
         try { save_config(cfg, config_path); }
         catch (const std::exception& e) {
             std::cerr << "Warning: could not save default config: " << e.what() << "\n";
         } catch (...) {
             std::cerr << "Warning: could not save default config.\n";
         }
+    } catch (...) {
+        if (!path_is_missing(config_path)) {
+            std::cerr << "Config load failed; refusing to overwrite existing config: "
+                      << config_path << "\n";
+            return 1;
+        }
+        cfg = make_default_config();
+        try { save_config(cfg, config_path); }
+        catch (...) { std::cerr << "Warning: could not save default config.\n"; }
     }
 
     const std::string& cmd = args[0];
@@ -810,4 +866,16 @@ int main(int argc, char* argv[]) {
     std::cerr << "Unknown command: " << cmd << "\n";
     print_help();
     return 1;
+}
+
+int main(int argc, char* argv[]) {
+    try {
+        return run_cli(argc, argv);
+    } catch (const std::exception& e) {
+        std::cerr << "Unexpected error: " << e.what() << "\n";
+        return 1;
+    } catch (...) {
+        std::cerr << "Unexpected error.\n";
+        return 1;
+    }
 }

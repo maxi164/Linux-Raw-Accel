@@ -285,14 +285,16 @@ bool AccelDaemon::start(const std::string& config_path) {
 }
 
 void AccelDaemon::stop() {
-    running_.store(false);
+    bool was_running = running_.exchange(false);
     if (loop_thread_.joinable()) loop_thread_.join();
+    bool had_runtime_fds = (inotify_fd_ >= 0 || epoll_fd_ >= 0);
     teardown_devices();
 
     if (inotify_fd_ >= 0) { close(inotify_fd_); inotify_fd_ = -1; inotify_wd_ = -1; }
     if (epoll_fd_   >= 0) { close(epoll_fd_);   epoll_fd_   = -1; }
 
-    log("Daemon stopped.");
+    if (was_running || had_runtime_fds)
+        log("Daemon stopped.");
 }
 
 bool AccelDaemon::reload() {
@@ -417,13 +419,22 @@ bool AccelDaemon::setup_devices() {
         dev.path = path;
 
         if (!open_input_device(dev)) continue;
+
+        const device_profile* prof = find_profile(dev.device_id);
+        if (prof && prof->dev_cfg.disable) {
+            log("Skipping disabled mouse profile: " + dev.name +
+                " [id=" + dev.device_id + "]");
+            ioctl(dev.fd_in, EVIOCGRAB, 0);
+            close(dev.fd_in);
+            continue;
+        }
+
         if (!create_virtual_device(dev)) {
             ioctl(dev.fd_in, EVIOCGRAB, 0);
             close(dev.fd_in);
             continue;
         }
 
-        const device_profile* prof = find_profile(dev.device_id);
         if (prof) apply_profile(dev, *prof);
 
         // Register in epoll
@@ -500,7 +511,10 @@ void AccelDaemon::apply_profile(mouse_device& dev, const device_profile& prof) {
     dev.dpi       = std::clamp(prof.dev_cfg.dpi,          1, 32000);
     dev.poll_rate = std::clamp(prof.dev_cfg.polling_rate,
                                (int)POLL_RATE_MIN, (int)POLL_RATE_MAX);
-    dev.dpi_factor = dev.dpi / NORMALIZED_DPI; // R13-perf: pre-compute
+    // Convert raw counts/ms to physical inches/s:
+    //   counts / dpi / (ms / 1000) = counts * NORMALIZED_DPI / (dpi * ms).
+    // `output_dpi` is applied later in modifier::modify() as output scaling.
+    dev.dpi_factor = NORMALIZED_DPI / dev.dpi; // R13-perf: pre-compute
     dev.settings.prof = prof.prof;
     init_settings(dev.settings);
     dev.sp.init(prof.prof.speed_processor_args);
@@ -518,15 +532,16 @@ void AccelDaemon::handle_hotplug() {
     while (true) {
         ssize_t n = read(inotify_fd_, buf, sizeof(buf));
         if (n <= 0) break;
-        ssize_t i = 0;
-        while (i < n) {
+        size_t i = 0;
+        size_t total = static_cast<size_t>(n);
+        while (i < total) {
             auto* ev = reinterpret_cast<inotify_event*>(buf + i);
             if (ev->len > 0) {
                 std::string fname(ev->name);
                 // Only care about event* nodes
                 if (fname.rfind("event", 0) == 0) changed = true;
             }
-            i += sizeof(inotify_event) + ev->len;
+            i += sizeof(inotify_event) + static_cast<size_t>(ev->len);
         }
     }
 
@@ -546,14 +561,24 @@ void AccelDaemon::do_hotplug_scan() {
         mouse_device dev;
         dev.path = path;
         if (!open_input_device(dev)) continue;
+
+        // Apply per-device profile assignment before creating uinput so a
+        // disabled profile really leaves the physical mouse untouched.
+        const device_profile* prof = find_profile(dev.device_id);
+        if (prof && prof->dev_cfg.disable) {
+            log("Hot-plug: disabled profile matched, skipping " + dev.name +
+                " [id=" + dev.device_id + "]");
+            ioctl(dev.fd_in, EVIOCGRAB, 0);
+            close(dev.fd_in);
+            continue;
+        }
+
         if (!create_virtual_device(dev)) {
             ioctl(dev.fd_in, EVIOCGRAB, 0);
             close(dev.fd_in);
             continue;
         }
 
-        // Apply per-device profile assignment (same logic as setup_devices)
-        const device_profile* prof = find_profile(dev.device_id);
         if (prof) apply_profile(dev, *prof);
 
         epoll_event eev{};
@@ -633,11 +658,16 @@ void AccelDaemon::run_loop() {
                 // config_ is written under devices_mutex_ so that status_json()
                 // (which runs on the IPC thread) never reads a half-updated config_.
                 bool any_live = false;
+                bool needs_full_reopen = false;
                 {
                     std::lock_guard<std::mutex> lk(devices_mutex_);
                     config_ = new_cfg;
                     for (auto& dev : devices_) {
                         const device_profile* prof = find_profile(dev.device_id);
+                        if (prof && prof->dev_cfg.disable) {
+                            needs_full_reopen = true;
+                            break;
+                        }
                         if (prof) {
                             apply_profile(dev, *prof);
                             any_live = true;
@@ -646,7 +676,13 @@ void AccelDaemon::run_loop() {
                     }
                 }
 
-                if (!any_live) {
+                if (needs_full_reopen) {
+                    // A live device now maps to a disabled profile.  Reopen the
+                    // device set so that disabled devices are ungrabbed and skipped.
+                    teardown_devices();
+                    if (!setup_devices())
+                        log("Reload: no devices available after applying disabled profiles.");
+                } else if (!any_live) {
                     // No grabbed devices yet — do a full setup so new devices are opened.
                     teardown_devices();
                     if (!setup_devices())
@@ -780,7 +816,8 @@ static bool flush_motion(mouse_device& dev, libevdev_uinput* uidev,
     // D6: modify() returns early when time<=0 (no motion applied).
     // flush_motion follows the same strategy: don't send motion for zero/negative intervals.
     // On the first call last_time_ms==0, so time_ms will be very large and gets clamped to DEFAULT_TIME_MAX — correct.
-    if (time_ms <= 0) time_ms = DEFAULT_TIME_MIN; // clamp to minimum window instead of zero
+    double min_time_ms = 1000.0 / std::clamp(dev.poll_rate, (int)POLL_RATE_MIN, (int)POLL_RATE_MAX) / 2.0;
+    if (time_ms <= 0) time_ms = min_time_ms; // clamp to configured half-poll window instead of zero
     if (time_ms > DEFAULT_TIME_MAX) time_ms = DEFAULT_TIME_MAX;
     dev.last_time_ms = now;
 

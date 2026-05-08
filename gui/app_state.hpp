@@ -59,6 +59,16 @@ struct InputDeviceInfo {
 };
 
 // ── Application state ─────────────────────────────────────────────────────────
+enum class UiLanguage { english, turkish };
+enum class UiTextKind { label, markup, button, check, tooltip };
+
+struct UiTextBinding {
+    GtkWidget*  widget = nullptr;
+    UiTextKind  kind   = UiTextKind::label;
+    const char* en     = nullptr;
+    const char* tr     = nullptr;
+};
+
 struct AppState {
     app_config  config;
     std::string config_path;
@@ -66,6 +76,8 @@ struct AppState {
     bool        xy_linked  = true;
     bool        updating   = false;
     bool        unsaved    = false;
+    UiLanguage language   = UiLanguage::english;
+    std::vector<UiTextBinding> ui_texts;
 
     // Daemon state
     guint       daemon_poll_id = 0;
@@ -106,6 +118,7 @@ struct AppState {
     GtkWidget* daemon_start_btn  = nullptr;
     GtkWidget* daemon_stop_btn   = nullptr;
     GtkWidget* daemon_reload_btn = nullptr;
+    GtkWidget* language_combo    = nullptr;
 
     // Accel X
     GtkWidget* mode_combo         = nullptr;
@@ -171,6 +184,10 @@ struct AppState {
     std::vector<InputDeviceInfo> mice_list;
 };
 
+inline const char* ui_text(const AppState* S, const char* en, const char* tr) {
+    return (S && S->language == UiLanguage::turkish && tr && tr[0] != '\0') ? tr : en;
+}
+
 // ── Global app state pointer (defined in main.cpp) ───────────────────────────
 // NOTE: G is intentionally only accessible to main.cpp. All other code receives
 // AppState* through function parameters or GTK callback gpointer user_data.
@@ -192,6 +209,8 @@ std::string check_duplicate_device_ids(const app_config& cfg);
 pid_t read_daemon_pid();
 bool  daemon_running();
 bool  daemon_send_signal(int sig, std::string* err_out = nullptr);
+bool  daemon_reload_via_any_path(std::string* err_out = nullptr);
+std::string daemon_config_path_from_ipc();
 void  update_daemon_status(AppState* S);
 
 // profile

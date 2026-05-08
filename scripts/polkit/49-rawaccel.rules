@@ -13,4 +13,18 @@ polkit.addRule(function(action, subject) {
         subject.active) {
         return polkit.Result.YES;
     }
+
+    /* Allow GUI/CLI users in the input group to manage only rawaccel.service
+     * through systemd.  This is the path used when the daemon is installed as
+     * a system service; it avoids pkexec(systemctl) password prompts without
+     * granting broad service-management rights.
+     */
+    if (action.id === "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") === "rawaccel.service" &&
+        ["start", "stop", "restart", "reload"].indexOf(action.lookup("verb")) >= 0 &&
+        subject.isInGroup("input") &&
+        subject.local &&
+        subject.active) {
+        return polkit.Result.YES;
+    }
 });

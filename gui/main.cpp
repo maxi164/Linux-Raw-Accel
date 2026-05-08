@@ -44,19 +44,19 @@ void save_config_now(AppState* S) {
         // Auto-notify daemon so the running instance picks up the new config immediately.
         // This mirrors the "Apply" button path but is silent (no error if daemon is stopped).
         std::string sig_err;
-        bool notified = daemon_send_signal(SIGHUP, &sig_err);
+        bool notified = daemon_reload_via_any_path(&sig_err);
         // Check for duplicate device IDs and prepend warning to status
         std::string dup_warn = check_duplicate_device_ids(S->config);
         std::string status_msg;
         if (notified)
-            status_msg = "Saved & reloaded: " + S->config_path;
+            status_msg = std::string(ui_text(S, "Saved & reloaded: ", "Kaydedildi ve yenilendi: ")) + S->config_path;
         else
-            status_msg = "Saved: " + S->config_path;
+            status_msg = std::string(ui_text(S, "Saved: ", "Kaydedildi: ")) + S->config_path;
         if (!dup_warn.empty())
             status_msg = dup_warn + " | " + status_msg;
         set_status(S, status_msg);
     } catch (std::exception& e) {
-        set_status(S, std::string("Save error: ") + e.what());
+        set_status(S, std::string(ui_text(S, "Save error: ", "Kaydetme hatası: ")) + e.what());
     }
 }
 
@@ -109,10 +109,15 @@ int main(int argc, char* argv[]) {
 
     AppState state;
 
-    // Find config — prefer real user's config even if launched with sudo.
+    // Find config — if a daemon is already running, edit the same config file
+    // it reports over IPC.  Otherwise prefer the real user's config even if
+    // launched with sudo.
     // Use getpwnam_r (reentrant, thread-safe) instead of getpwnam.
+    std::string daemon_cfg = daemon_config_path_from_ipc();
     const char* sudo_user = getenv("SUDO_USER");
-    if (sudo_user && sudo_user[0] != '\0') {
+    if (!daemon_cfg.empty()) {
+        state.config_path = daemon_cfg;
+    } else if (sudo_user && sudo_user[0] != '\0') {
         struct passwd  pwd_buf;
         struct passwd* result = nullptr;
         std::vector<char> pw_buf(16384);

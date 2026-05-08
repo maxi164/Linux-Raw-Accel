@@ -61,6 +61,12 @@ if [[ ! -f /etc/rawaccel/settings.json ]]; then
     cp "$ROOT/config/default.json" /etc/rawaccel/settings.json
     echo "  Installed default config to /etc/rawaccel/settings.json"
 fi
+if getent group input >/dev/null; then
+    chgrp input /etc/rawaccel /etc/rawaccel/settings.json
+    chmod 2775 /etc/rawaccel
+    chmod 664 /etc/rawaccel/settings.json
+    echo "  /etc/rawaccel is writable by the input group (GUI/CLI edits system config)"
+fi
 
 # uinput module auto-load
 echo "uinput" > /etc/modules-load.d/rawaccel.conf
@@ -192,8 +198,8 @@ echo "  rawaccel-cli list     — List profiles"
 echo "  rawaccel-cli --help   — CLI help"
 echo ""
 echo "Config files:"
-echo "  /etc/rawaccel/settings.json      (system service)"
-echo "  ~/.config/rawaccel/settings.json (user — GUI/CLI)"
+echo "  /etc/rawaccel/settings.json      (system service; GUI/CLI use this while daemon runs)"
+echo "  ~/.config/rawaccel/settings.json (user fallback when daemon is not reachable)"
 echo ""
 if [[ -n "$REAL_USER" && "$REAL_USER" != "root" ]]; then
     echo "NOTE: Log out and back in for group changes to take effect."

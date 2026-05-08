@@ -2,3 +2,24 @@ cd /home/a/Masaüstü/rawaccel-linux
   sudo bash setup.sh --reinstall 2>&1 | tee /tmp/rawaccel-setup.log
 
   cd '/home/a/Masaüstü/rawaccel-linux' && sudo bash setup.sh
+1. Önce normal kurulum dener:
+
+pacman -Syu --needed --noconfirm ...
+
+  2. Eğer imza/mirror senkronizasyonu gibi sebeple başarısız olursa otomatik:
+
+cachyos-rate-mirrors
+pacman -Syyu --needed --noconfirm ...
+
+ile tekrar dener.
+
+Eklenen bölüm: setup.sh:83-105
+
+Syntax kontrolü de geçti:
+
+bash -n setup.sh
+# setup.sh syntax OK
+
+Artık normal kurulum için şunu çalıştırman yeterli:
+
+cd /home/a/Masaüstü/rawaccel-linux && sudo bash setup.sh

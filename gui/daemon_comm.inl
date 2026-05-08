@@ -3,6 +3,7 @@
 #include <sys/un.h>
 #include <cerrno>
 #include <climits>
+#include "../include/nlohmann/json.hpp"
 
 // ── KDE / libinput acceleration detection ────────────────────────────────────
 
@@ -144,6 +145,24 @@ static std::string daemon_ipc_query(const std::string& cmd) {
     return {};
 }
 
+std::string daemon_config_path_from_ipc() {
+    std::string resp = daemon_ipc_query("status");
+    if (resp.empty()) return {};
+    auto j = nlohmann::json::parse(resp, nullptr, false);
+    if (!j.is_discarded() && j.contains("config") && j["config"].is_string())
+        return j["config"].get<std::string>();
+    return {};
+}
+
+bool daemon_reload_via_any_path(std::string* err_out) {
+    std::string ipc_resp = daemon_ipc_query("reload");
+    if (!ipc_resp.empty() && ipc_resp.find("\"ok\":true") != std::string::npos) {
+        if (err_out) err_out->clear();
+        return true;
+    }
+    return daemon_send_signal(SIGHUP, err_out);
+}
+
 pid_t read_daemon_pid() {
     // 1. Try PID files first (fastest)
     // N1: daemon prefers $XDG_RUNTIME_DIR/rawaccel.pid — must check it here too.
@@ -157,10 +176,15 @@ pid_t read_daemon_pid() {
         FILE* fp = fopen(path.c_str(), "r");
         if (!fp) continue;
         pid_t pid = 0;
-        // Empty / malformed PID file → fscanf returns 0 or EOF and `pid`
-        // stays 0; the `pid > 0` guard below filters those out.  We keep
-        // the unused result silent for -Wunused-result + _FORTIFY_SOURCE.
-        (void)!fscanf(fp, "%d", &pid);
+        char line[64] = {};
+        if (fgets(line, sizeof(line), fp)) {
+            char* end = nullptr;
+            errno = 0;
+            long parsed = std::strtol(line, &end, 10);
+            if (end != line && errno != ERANGE && parsed > 0 &&
+                parsed <= static_cast<long>(std::numeric_limits<pid_t>::max()))
+                pid = static_cast<pid_t>(parsed);
+        }
         fclose(fp);
         if (pid > 0 && kill(pid, 0) == 0) return pid;
     }
@@ -220,11 +244,13 @@ bool daemon_running() {
 void update_daemon_status(AppState* S) {
     bool running = daemon_running();
     if (running) {
-        gtk_label_set_markup(GTK_LABEL(S->daemon_status),
-            "<span foreground='#40c040'>● Daemon running</span>");
+        gtk_label_set_markup(GTK_LABEL(S->daemon_status), ui_text(S,
+            "<span foreground='#40c040'>● Daemon running</span>",
+            "<span foreground='#40c040'>● Daemon çalışıyor</span>"));
     } else {
-        gtk_label_set_markup(GTK_LABEL(S->daemon_status),
-            "<span foreground='#c04040'>● Daemon stopped</span>");
+        gtk_label_set_markup(GTK_LABEL(S->daemon_status), ui_text(S,
+            "<span foreground='#c04040'>● Daemon stopped</span>",
+            "<span foreground='#c04040'>● Daemon durdu</span>"));
     }
     // Update button sensitivity based on whether the daemon is running
     if (S->apply_btn)        gtk_widget_set_sensitive(S->apply_btn,        running);
