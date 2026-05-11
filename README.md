@@ -317,12 +317,22 @@ rawaccel-linux/
 
 ## Performance
 
-RawAccel Linux processes mouse events with sub-microsecond latency in the daemon's hot path:
+RawAccel Linux processes mouse events with low-microsecond latency in the daemon's hot path. Real-world numbers measured on a Logitech wireless mouse at 1000 Hz polling, accelerated mode (not raw passthrough), reported by `kill -USR1 $(cat /run/rawaccel.pid)`:
 
-- **Processing latency** (modifier math + uinput write): typically **< 5 µs** per event
+| Statistic | Typical value |
+|-----------|---------------|
+| `lat_avg_us` | ≈ **13 µs** |
+| `lat_p50_us` | ≈ **14 µs** |
+| `lat_p95_us` | ≈ **18 µs** |
+| `lat_p99_us` | ≈ **32 µs** |
+| `lat_max_us` | ≈ 200 µs (occasional scheduler hiccup) |
+
+That's well under one polling interval (1 ms at 1000 Hz / 0.125 ms at 8000 Hz), so RawAccel never becomes the bottleneck. Other properties:
+
 - **Event loop**: epoll-based, 10 ms timeout — no busy-wait, minimal CPU usage
 - **Algorithm overhead**: all algorithms are header-only, compiler-inlined
 - **Subpixel accumulation**: no micro-movements are silently lost
+- **Raw passthrough mode**: the per-event `clock_gettime` pair is skipped, so the only added cost is the uinput write itself
 
 To measure live latency statistics, send `SIGUSR1` to the daemon:
 

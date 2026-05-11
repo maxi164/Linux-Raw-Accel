@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <iomanip>
+#include <sstream>
 #include <cmath>
 #include <cctype>
 #include <csignal>
@@ -178,10 +179,66 @@ static app_config make_default_config() {
     return cfg;
 }
 
+/// BUG-24: Validate a user-supplied profile name.
+/// Previously cmd_create / cmd_import accepted *any* string — including
+/// "../../../etc/passwd", strings containing newlines, control characters
+/// or NUL bytes — which is harmless from a security standpoint (the name
+/// is never used as a filesystem path; cf. grep for fopen/fs::path) but
+/// breaks `rawaccel-cli list` / GUI rendering and the JSON export round-trip
+/// (a name containing "\n" prints across two profile entries in `list`).
+///
+/// Rules:
+///   • non-empty
+///   • length ≤ 128 chars (room for the JSON struct's `char name[256]`)
+///   • no control characters (anything < 0x20 except space) or NUL or DEL
+///   • no path separators "/" or "\" (defensive — names should never be paths)
+///   • no leading/trailing whitespace
+///   • not exactly "." or ".."
+///
+/// Returns an empty string on success, or a human-readable reason on failure.
+static std::string validate_profile_name(const std::string& name) {
+    if (name.empty())                  return "must not be empty";
+    if (name.size() > 128)             return "must be 128 characters or fewer";
+    if (std::isspace(static_cast<unsigned char>(name.front())) ||
+        std::isspace(static_cast<unsigned char>(name.back())))
+                                       return "must not start or end with whitespace";
+    if (name == "." || name == "..")   return "reserved name";
+    for (unsigned char c : name) {
+        if (c == '\0')                 return "contains a NUL byte";
+        if (c == 0x7f)                 return "contains the DEL character";
+        if (c < 0x20)                  return "contains a control character "
+                                              "(newline, tab, etc.)";
+        if (c == '/' || c == '\\')     return "contains a path separator (/ or \\)";
+    }
+    return {};
+}
+
+/// Returns true for "no file at this path that holds any user data".
+///
+/// Plain ENOENT obviously qualifies, but a 0-byte file (e.g. created by
+/// `mktemp` or `touch`) and a file containing only whitespace also do —
+/// they hold nothing worth preserving, and the previous strict-existence
+/// check made the CLI refuse to write into such paths.  That broke
+/// scripts, CI pipelines and any "mktemp + rawaccel-cli -c …" workflow
+/// with a confusing "Refusing to overwrite existing config" error.
 static bool path_is_missing(const std::string& path) {
     errno = 0;
-    if (access(path.c_str(), F_OK) == 0) return false;
-    return errno == ENOENT;
+    if (access(path.c_str(), F_OK) != 0) return errno == ENOENT;
+    // File exists — peek at its size and contents.
+    struct stat st{};
+    if (stat(path.c_str(), &st) != 0) return false;
+    if (st.st_size == 0) return true; // 0-byte file is morally empty
+    // Up to 4 KB scan for non-whitespace.  If the entire file is just
+    // whitespace, treat it as missing.  Bound the read so a buggy huge
+    // file doesn't make `list` slow.
+    std::ifstream f(path);
+    if (!f.is_open()) return false;
+    char buf[4096];
+    f.read(buf, sizeof(buf));
+    std::streamsize n = f.gcount();
+    for (std::streamsize i = 0; i < n; ++i)
+        if (!std::isspace(static_cast<unsigned char>(buf[i]))) return false;
+    return true;
 }
 
 // ── Profile display ────────────────────────────────────────────────────────────
@@ -316,11 +373,11 @@ static int cmd_set(app_config& cfg, const std::string& config_path, const std::s
 }
 
 static int cmd_create(app_config& cfg, const std::string& config_path, const std::string& name) {
-    // BUG-12: empty profile name has no useful semantics — every later
-    // command (`delete ""`, `show ""`, `set-param "" ...`) would target the
-    // first nameless profile creating ambiguity.  Reject up front.
-    if (name.empty()) {
-        std::cerr << "Profile name must not be empty.\n";
+    // BUG-12 / BUG-24: profile name must pass the shared validator.
+    // Beyond rejecting "" (BUG-12), this also catches names with newlines,
+    // path separators or control characters — see validate_profile_name().
+    if (auto reason = validate_profile_name(name); !reason.empty()) {
+        std::cerr << "Invalid profile name: " << reason << ".\n";
         return 1;
     }
     // Check duplicate
@@ -434,6 +491,15 @@ static int cmd_set_param(app_config& cfg, const std::string& config_path,
         }
     }
 
+    // BUG-23: capture a pointer (or two) to the field(s) we're about to write
+    // so that — after sanitize_device_profile() runs — we can compare the
+    // stored value back against the raw user input and print a clamp note.
+    // Previously the CLI would happily report "Set dpi = -100" while the
+    // sanitize layer silently clamped it to 1, leaving the user with a value
+    // that doesn't match what they asked for.
+    double* dbl_target = nullptr;
+    int*    int_target = nullptr;
+
     if      (key == "mode")             {
         if (!set_mode(a, val) || !set_mode(ay, val)) {
             std::cerr << "Invalid mode: '" << val << "'.  Valid: classic, power, "
@@ -450,20 +516,20 @@ static int cmd_set_param(app_config& cfg, const std::string& config_path,
         }
         a.gain = ay.gain = b;
     }
-    else if (key == "acceleration")     { a.acceleration = ay.acceleration = v; }
-    else if (key == "exponent_classic") { a.exponent_classic = ay.exponent_classic = v; }
-    else if (key == "exponent_power")   { a.exponent_power = ay.exponent_power = v; }
-    else if (key == "limit")            { a.limit = ay.limit = v; }
-    else if (key == "decay_rate")       { a.decay_rate = ay.decay_rate = v; }
-    else if (key == "input_offset")     { a.input_offset = ay.input_offset = v; }
-    else if (key == "output_offset")    { a.output_offset = ay.output_offset = v; }
-    else if (key == "scale")            { a.scale = ay.scale = v; }
-    else if (key == "sync_speed")       { a.sync_speed = ay.sync_speed = v; }
-    else if (key == "smooth")           { a.smooth = ay.smooth = v; }
-    else if (key == "motivity")         { a.motivity = ay.motivity = v; }
-    else if (key == "gamma")            { a.gamma = ay.gamma = v; }
-    else if (key == "cap_y")            { a.cap.y = ay.cap.y = v; }
-    else if (key == "cap_x")            { a.cap.x = ay.cap.x = v; }
+    else if (key == "acceleration")     { a.acceleration = ay.acceleration = v;             dbl_target = &a.acceleration; }
+    else if (key == "exponent_classic") { a.exponent_classic = ay.exponent_classic = v;     dbl_target = &a.exponent_classic; }
+    else if (key == "exponent_power")   { a.exponent_power = ay.exponent_power = v;         dbl_target = &a.exponent_power; }
+    else if (key == "limit")            { a.limit = ay.limit = v;                           dbl_target = &a.limit; }
+    else if (key == "decay_rate")       { a.decay_rate = ay.decay_rate = v;                 dbl_target = &a.decay_rate; }
+    else if (key == "input_offset")     { a.input_offset = ay.input_offset = v;             dbl_target = &a.input_offset; }
+    else if (key == "output_offset")    { a.output_offset = ay.output_offset = v;           dbl_target = &a.output_offset; }
+    else if (key == "scale")            { a.scale = ay.scale = v;                           dbl_target = &a.scale; }
+    else if (key == "sync_speed")       { a.sync_speed = ay.sync_speed = v;                 dbl_target = &a.sync_speed; }
+    else if (key == "smooth")           { a.smooth = ay.smooth = v;                         dbl_target = &a.smooth; }
+    else if (key == "motivity")         { a.motivity = ay.motivity = v;                     dbl_target = &a.motivity; }
+    else if (key == "gamma")            { a.gamma = ay.gamma = v;                           dbl_target = &a.gamma; }
+    else if (key == "cap_y")            { a.cap.y = ay.cap.y = v;                           dbl_target = &a.cap.y; }
+    else if (key == "cap_x")            { a.cap.x = ay.cap.x = v;                           dbl_target = &a.cap.x; }
     else if (key == "cap_mode")         {
         cap_mode m;
         if      (val == "in")  m = cap_mode::in;
@@ -492,15 +558,15 @@ static int cmd_set_param(app_config& cfg, const std::string& config_path,
         }
         dp->dev_cfg.disable = b;
     }
-    else if (key == "rotation")         { dp->prof.degrees_rotation = v; }
-    else if (key == "snap")             { dp->prof.degrees_snap = v; }
-    else if (key == "dpi")              { dp->dev_cfg.dpi = finite_double_to_int(v); }
-    else if (key == "polling_rate")     { dp->dev_cfg.polling_rate = finite_double_to_int(v); }
-    else if (key == "speed_min")        { dp->prof.speed_min = v; }
-    else if (key == "speed_max")        { dp->prof.speed_max = v; }
-    else if (key == "output_dpi")        { dp->prof.output_dpi = v; }
-    else if (key == "lr_ratio")         { dp->prof.lr_output_dpi_ratio = v; }
-    else if (key == "ud_ratio")         { dp->prof.ud_output_dpi_ratio = v; }
+    else if (key == "rotation")         { dp->prof.degrees_rotation = v;                    dbl_target = &dp->prof.degrees_rotation; }
+    else if (key == "snap")             { dp->prof.degrees_snap = v;                        dbl_target = &dp->prof.degrees_snap; }
+    else if (key == "dpi")              { dp->dev_cfg.dpi = finite_double_to_int(v);        int_target = &dp->dev_cfg.dpi; }
+    else if (key == "polling_rate")     { dp->dev_cfg.polling_rate = finite_double_to_int(v); int_target = &dp->dev_cfg.polling_rate; }
+    else if (key == "speed_min")        { dp->prof.speed_min = v;                           dbl_target = &dp->prof.speed_min; }
+    else if (key == "speed_max")        { dp->prof.speed_max = v;                           dbl_target = &dp->prof.speed_max; }
+    else if (key == "output_dpi")       { dp->prof.output_dpi = v;                          dbl_target = &dp->prof.output_dpi; }
+    else if (key == "lr_ratio")         { dp->prof.lr_output_dpi_ratio = v;                 dbl_target = &dp->prof.lr_output_dpi_ratio; }
+    else if (key == "ud_ratio")         { dp->prof.ud_output_dpi_ratio = v;                 dbl_target = &dp->prof.ud_output_dpi_ratio; }
     else if (key == "distance_mode")    {
         if      (val == "separate" || val == "manhattan") {
             dp->prof.speed_processor_args.whole = false;
@@ -523,16 +589,44 @@ static int cmd_set_param(app_config& cfg, const std::string& config_path,
             return 1;
         }
     }
-    else if (key == "lp_norm")          { dp->prof.speed_processor_args.lp_norm = v; }
-    else if (key == "input_smooth_halflife")  { dp->prof.speed_processor_args.input_speed_smooth_halflife = v; }
-    else if (key == "scale_smooth_halflife")  { dp->prof.speed_processor_args.scale_smooth_halflife = v; }
-    else if (key == "output_smooth_halflife") { dp->prof.speed_processor_args.output_speed_smooth_halflife = v; }
+    else if (key == "lp_norm")          { dp->prof.speed_processor_args.lp_norm = v;                                dbl_target = &dp->prof.speed_processor_args.lp_norm; }
+    else if (key == "input_smooth_halflife")  { dp->prof.speed_processor_args.input_speed_smooth_halflife = v;      dbl_target = &dp->prof.speed_processor_args.input_speed_smooth_halflife; }
+    else if (key == "scale_smooth_halflife")  { dp->prof.speed_processor_args.scale_smooth_halflife = v;            dbl_target = &dp->prof.speed_processor_args.scale_smooth_halflife; }
+    else if (key == "output_smooth_halflife") { dp->prof.speed_processor_args.output_speed_smooth_halflife = v;     dbl_target = &dp->prof.speed_processor_args.output_speed_smooth_halflife; }
     else                                { std::cerr << "Unknown key: " << key << "\n"; return 1; }
 
     // Sanitize after setting — clamps DPI, polling rate, rotation, etc. to safe ranges
     sanitize_device_profile(*dp);
+
+    // BUG-23 cont.: check whether sanitize clamped what we just wrote and
+    // surface that to the user.  Without this, "set-param … dpi -100" would
+    // print "Set dpi = -100" while the disk file actually holds dpi=1.
+    bool clamped = false;
+    std::string clamped_to;
+    if (int_target) {
+        int requested = finite_double_to_int(v);
+        if (*int_target != requested) {
+            clamped = true;
+            clamped_to = std::to_string(*int_target);
+        }
+    } else if (dbl_target) {
+        if (std::fabs(*dbl_target - v) > 1e-9) {
+            clamped = true;
+            std::ostringstream oss;
+            oss << *dbl_target;
+            clamped_to = oss.str();
+        }
+    }
+
     save_config(cfg, config_path);
-    std::cout << "Set " << key << " = " << val << " in profile '" << profile_name << "'\n";
+    if (clamped) {
+        std::cout << "Set " << key << " = " << val
+                  << " (clamped to " << clamped_to << ") in profile '"
+                  << profile_name << "'\n";
+    } else {
+        std::cout << "Set " << key << " = " << val
+                  << " in profile '" << profile_name << "'\n";
+    }
     if (daemon_reload_via_any_path())
         std::cout << "Daemon reloaded.\n";
     return 0;
@@ -594,9 +688,12 @@ static int cmd_import(app_config& cfg, const std::string& config_path, const std
     // empty name or a duplicate of an existing profile would be silently
     // appended, leaving the user with multiple ambiguous profiles that
     // commands like delete/show/set-param target by first match.
-    if (dp.name.empty()) {
-        std::cerr << "Imported profile has no 'name' — refusing to import "
-                     "(would leave the config ambiguous).\n";
+    // BUG-24: extend the check to the same character-class rules used by
+    // cmd_create — otherwise a malicious or hand-edited JSON with a name
+    // containing newlines / control chars / path separators would slip in.
+    if (auto reason = validate_profile_name(dp.name); !reason.empty()) {
+        std::cerr << "Imported profile has invalid 'name': " << reason
+                  << ".\n";
         return 1;
     }
     for (auto& existing : cfg.profiles) {

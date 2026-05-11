@@ -1,0 +1,42 @@
+# Build outputs
+build-manual/
+build/
+build-*/
+
+# Object & static archive files
+*.o
+*.a
+*.so
+*.dylib
+
+# Compiler caches
+*.gcno
+*.gcda
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# CMake artefacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Fuzzer crash inputs (regenerated each run)
+crash-*
+leak-*
+fuzz-*.log
+
+# Temporary atomic-write residue (save_config writes to *.tmp then renames)
+*.tmp
+
+# Core dumps
+core
+core.*
+vgcore.*

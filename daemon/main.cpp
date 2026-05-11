@@ -212,51 +212,71 @@ int main(int argc, char* argv[]) {
     // K1: Atomic PID write via O_CREAT|O_EXCL — fail if already running.
     // D5: Priority: $XDG_RUNTIME_DIR (user runtime), /run/ (root), /tmp/ (fallback).
     std::string xdg_pid = xdg_pid_path();
-    bool pid_written = (!xdg_pid.empty() && write_pid(xdg_pid))
-                    || write_pid(PID_FILE)
-                    || write_pid(PID_FILE2);
-    if (pid_written)
-        std::cout << "PID file: " << g_pid_file << "\n";
-    if (!pid_written) {
-        // Both attempts failed — daemon is likely already running.
-        // Check for a stale PID file (left behind by a crashed previous instance):
-        // if the recorded PID no longer exists, delete the file and retry.
-        auto try_clear_stale = [](const char* path) -> bool {
-            int fd = open(path, O_RDONLY);
-            if (fd < 0) return false;
-            char buf[32] = {};
-            ssize_t n = read(fd, buf, sizeof(buf) - 1);
-            close(fd);
-            if (n <= 0) { unlink(path); return false; }
-            errno = 0;
-            char* end = nullptr;
-            long val = std::strtol(buf, &end, 10);
-            // BUG-7: long → pid_t (int) cast UB if val out of int range.
-            // A corrupted PID file should never let us cast garbage to int.
-            pid_t pid = (end > buf && errno == 0 && val > 0 &&
-                         val <= INT_MAX) ? static_cast<pid_t>(val) : 0;
-            if (pid > 0 && kill(pid, 0) != 0 && errno == ESRCH) {
-                // Process does not exist — remove the stale PID file
-                unlink(path);
-                return true;
-            }
-            return false; // process is still running
-        };
+    std::vector<std::string> pid_candidates;
+    if (!xdg_pid.empty()) pid_candidates.push_back(xdg_pid);
+    pid_candidates.emplace_back(PID_FILE);
+    pid_candidates.emplace_back(PID_FILE2);
 
-        // D5: also include the XDG path in the stale-check list
-        bool cleared = (!xdg_pid.empty() && try_clear_stale(xdg_pid.c_str()))
-                    || try_clear_stale(PID_FILE)
-                    || try_clear_stale(PID_FILE2);
-        bool retry_ok = cleared &&
-                        ((!xdg_pid.empty() && write_pid(xdg_pid))
-                         || write_pid(PID_FILE)
-                         || write_pid(PID_FILE2));
-        if (!retry_ok) {
-            std::cerr << "[rawaccel] Another instance may already be running "
-                         "(PID file exists). Use 'rawaccel-cli stop' to stop it.\n";
+    // BUG-25: previously the daemon walked `pid_candidates` and accepted the
+    // first path it could O_EXCL-create.  When path[0] was held by a live
+    // daemon, path[1] was simply unused — so a second instance landed on
+    // path[1], wrote its own PID there, and ran in parallel until the
+    // kernel evdev grab failure unwound it.  Two daemons briefly racing
+    // for the same mouse is not what the user asked for.
+    //
+    // Fix: BEFORE attempting any O_EXCL write, scan every candidate for a
+    // live PID and refuse to start if any path is already owned.  Stale
+    // entries (PID no longer exists) are silently removed so a crashed
+    // previous instance doesn't permanently lock the new one out.
+    auto stat_alive = [](pid_t pid) -> bool {
+        if (pid <= 0) return false;
+        std::string proc_path = "/proc/" + std::to_string(pid);
+        struct stat st{};
+        return stat(proc_path.c_str(), &st) == 0;
+    };
+    auto inspect_pid_file = [&](const std::string& path) -> pid_t {
+        int fd = open(path.c_str(), O_RDONLY);
+        if (fd < 0) return 0;
+        char buf[32] = {};
+        ssize_t n = read(fd, buf, sizeof(buf) - 1);
+        close(fd);
+        if (n <= 0) { unlink(path.c_str()); return 0; }
+        errno = 0;
+        char* end = nullptr;
+        long val = std::strtol(buf, &end, 10);
+        // BUG-7: long → pid_t (int) cast UB if val out of int range.
+        pid_t pid = (end > buf && errno == 0 && val > 0 &&
+                     val <= INT_MAX) ? static_cast<pid_t>(val) : 0;
+        if (pid <= 0) { unlink(path.c_str()); return 0; }
+        if (stat_alive(pid)) return pid;
+        // Process is gone — silently clear the stale file.
+        unlink(path.c_str());
+        return 0;
+    };
+
+    for (const auto& path : pid_candidates) {
+        pid_t alive = inspect_pid_file(path);
+        if (alive > 0) {
+            std::cerr << "[rawaccel] Another daemon is already running "
+                         "(PID " << alive << ", file " << path << ").\n"
+                         "  Use 'rawaccel-cli stop' to stop it, or "
+                         "'sudo systemctl stop rawaccel'.\n";
             return 1;
         }
     }
+
+    bool pid_written = false;
+    for (const auto& path : pid_candidates) {
+        if (write_pid(path)) { pid_written = true; break; }
+    }
+    if (!pid_written) {
+        std::cerr << "[rawaccel] Could not create a PID file in any of: ";
+        for (size_t i = 0; i < pid_candidates.size(); i++)
+            std::cerr << (i ? ", " : "") << pid_candidates[i];
+        std::cerr << "\n  Check directory permissions / disk space.\n";
+        return 1;
+    }
+    std::cout << "PID file: " << g_pid_file << "\n";
 
     rawaccel::AccelDaemon daemon;
     // K2: atomic store — allows safe load() from the signal handler
